@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A5 · Notes Board</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    header h1 { font-size: 2rem; color: #2b6cb0; }
+    header p  { color: #718096; font-size: 0.9rem; margin-top: 0.3rem; }
+
+    .card {
+      background: white;
+      border-radius: 0.75rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 560px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .input-row input {
+      flex: 1;
+      padding: 0.6rem 0.8rem;
+      border: 1px solid #cbd5e0;
+      border-radius: 0.4rem;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .input-row input:focus { border-color: #3182ce; }
+
+    button {
+      padding: 0.6rem 1.1rem;
+      border: none;
+      border-radius: 0.4rem;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: background .2s;
+    }
+    .btn-add    { background: #3182ce; color: white; }
+    .btn-add:hover    { background: #2b6cb0; }
+    .btn-delete { background: #fc8181; color: white; padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+    .btn-delete:hover { background: #e53e3e; }
+
+    #status { font-size: 0.8rem; color: #e53e3e; min-height: 1.2em; margin-bottom: 0.5rem; }
+
+    ul { list-style: none; }
+    li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid #edf2f7;
+      gap: 0.5rem;
+    }
+    li:last-child { border-bottom: none; }
+    .note-text { flex: 1; }
+    .note-meta { font-size: 0.75rem; color: #a0aec0; white-space: nowrap; }
+
+    #empty { color: #a0aec0; font-style: italic; text-align: center; padding: 1rem 0; }
+
+    footer {
+      margin-top: 2rem;
+      font-size: 0.75rem;
+      color: #a0aec0;
+      text-align: center;
+    }
+    footer code { font-family: monospace; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📋 Notes Board</h1>
+  <p>A5 · 3-tier demo · nginx → Flask API → PostgreSQL</p>
+</header>
+
+<div class="card">
+  <div class="input-row">
+    <input id="noteInput" type="text" placeholder="Write a note and press Add…" maxlength="200" />
+    <button class="btn-add" onclick="addNote()">Add</button>
+  </div>
+  <div id="status"></div>
+  <ul id="noteList"></ul>
+  <p id="empty" style="display:none">No notes yet. Add one above!</p>
+</div>
+
+<footer>
+  Requests go to <code>/api/notes</code> → nginx proxies to <code>api:5000</code> →
+  Flask queries <code>db:5432</code>.
+  <br>The DB port is <strong>never</strong> reachable from here.
+</footer>
+
+<script>
+  const API = '/api/notes';
+
+  function setStatus(msg, isError = true) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.style.color = isError ? '#e53e3e' : '#38a169';
+  }
+
+  async function fetchNotes() {
+    try {
+      const res = await fetch(API);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const notes = await res.json();
+      renderNotes(notes);
+    } catch (e) {
+      setStatus('Could not load notes: ' + e.message);
+    }
+  }
+
+  function renderNotes(notes) {
+    const ul   = document.getElementById('noteList');
+    const empty = document.getElementById('empty');
+    ul.innerHTML = '';
+    if (notes.length === 0) { empty.style.display = ''; return; }
+    empty.style.display = 'none';
+    notes.forEach(n => {
+      const li = document.createElement('li');
+      const ts = new Date(n.created_at).toLocaleString();
+      li.innerHTML = `
+        <span class="note-text">${escHtml(n.content)}</span>
+        <span class="note-meta">${ts}</span>
+        <button class="btn-delete" onclick="deleteNote(${n.id})">✕</button>`;
+      ul.appendChild(li);
+    });
+  }
+
+  async function addNote() {
+    const input   = document.getElementById('noteInput');
+    const content = input.value.trim();
+    if (!content) { setStatus('Please write something first.'); return; }
+    try {
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      input.value = '';
+      setStatus('Note saved!', false);
+      await fetchNotes();
+    } catch (e) {
+      setStatus('Could not save note: ' + e.message);
+    }
+  }
+
+  async function deleteNote(id) {
+    try {
+      const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchNotes();
+    } catch (e) {
+      setStatus('Could not delete note: ' + e.message);
+    }
+  }
+
+  // Allow Enter key in the input box
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('noteInput')
+      .addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
+    fetchNotes();
+  });
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+              .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+</script>
+</body>
+</html>

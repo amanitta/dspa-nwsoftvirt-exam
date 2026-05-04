@@ -1,0 +1,81 @@
+services:
+
+  # ── Tier 1: static frontend ───────────────────────────────────────────────
+  frontend:
+    image: nginx:1.27-alpine
+    container_name: a5_frontend
+    ports:
+      - "8080:80"          # only port exposed to the host
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/index.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - frontend-net
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Tier 2: Python/Flask REST API ─────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: a5_api
+    # NOT exposed to host: reachable only from nginx via frontend-net
+    expose:
+      - "5000"
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: notesdb
+      DB_USER: notesuser
+      DB_PASSWORD: notespass
+    networks:
+      - frontend-net   # nginx  → api
+      - backend-net    # api    → db
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Tier 3: PostgreSQL database ───────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: a5_db
+    # port 5432 is NOT published to host on purpose: accessible only via backend-net
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: notesdb
+      POSTGRES_USER: notesuser
+      POSTGRES_PASSWORD: notespass
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - backend-net    # only the api can reach the db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notesuser -d notesdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  frontend-net:
+    name: a5_frontend_net
+    driver: bridge
+  backend-net:
+    name: a5_backend_net
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  db-data:
+    name: a5_db_data

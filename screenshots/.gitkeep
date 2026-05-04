@@ -1,0 +1,7 @@
+# placeholder – add 3-5 screenshots of the running demo here
+# Suggested screenshots:
+#   01_stack_up.png        – output of `docker compose ps` with all services healthy
+#   02_frontend.png        – browser at http://localhost:8080 with a few notes
+#   03_api_health.png      – curl /api/health response
+#   04_network_inspect.png – `docker network inspect a5_frontend_net` and a5_backend_net
+#   05_teardown.png        – output of scripts/teardown.sh
