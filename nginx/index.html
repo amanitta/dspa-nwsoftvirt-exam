@@ -3,191 +3,320 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>A5 · Notes Board</title>
+  <title>A5 · Expense Tracker</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --blue:   #2b6cb0;
+      --green:  #276749;
+      --red:    #c53030;
+      --gray:   #718096;
+      --light:  #f0f4f8;
+      --white:  #ffffff;
+      --border: #e2e8f0;
+    }
+
     body {
       font-family: system-ui, sans-serif;
-      background: #f0f4f8;
+      background: var(--light);
       color: #1a202c;
       min-height: 100vh;
+      padding: 2rem 1rem;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 2rem 1rem;
+      gap: 1.5rem;
     }
 
-    header {
-      text-align: center;
-      margin-bottom: 2rem;
-    }
-    header h1 { font-size: 2rem; color: #2b6cb0; }
-    header p  { color: #718096; font-size: 0.9rem; margin-top: 0.3rem; }
+    header { text-align: center; }
+    header h1 { font-size: 2rem; color: var(--blue); }
+    header p  { color: var(--gray); font-size: 0.9rem; margin-top: 0.25rem; }
 
     .card {
-      background: white;
+      background: var(--white);
       border-radius: 0.75rem;
-      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      box-shadow: 0 2px 8px rgba(0,0,0,.07);
       padding: 1.5rem;
       width: 100%;
-      max-width: 560px;
+      max-width: 780px;
+    }
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--blue);
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
     }
 
-    .input-row {
-      display: flex;
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 2fr 1fr auto;
       gap: 0.5rem;
-      margin-bottom: 1rem;
+      align-items: end;
     }
-    .input-row input {
-      flex: 1;
-      padding: 0.6rem 0.8rem;
+    @media (max-width: 640px) {
+      .form-grid { grid-template-columns: 1fr 1fr; }
+    }
+    label { font-size: 0.8rem; color: var(--gray); display: flex; flex-direction: column; gap: 0.3rem; }
+    input, select {
+      padding: 0.55rem 0.75rem;
       border: 1px solid #cbd5e0;
       border-radius: 0.4rem;
-      font-size: 1rem;
+      font-size: 0.95rem;
       outline: none;
       transition: border-color .2s;
+      width: 100%;
     }
-    .input-row input:focus { border-color: #3182ce; }
+    input:focus, select:focus { border-color: var(--blue); }
+
+    #status { font-size: 0.8rem; min-height: 1.2em; margin-top: 0.4rem; }
+    .ok  { color: var(--green); }
+    .err { color: var(--red);   }
 
     button {
-      padding: 0.6rem 1.1rem;
-      border: none;
-      border-radius: 0.4rem;
-      cursor: pointer;
-      font-size: 0.95rem;
+      padding: 0.55rem 1.1rem;
+      border: none; border-radius: 0.4rem;
+      cursor: pointer; font-size: 0.9rem;
       transition: background .2s;
+      white-space: nowrap;
     }
-    .btn-add    { background: #3182ce; color: white; }
-    .btn-add:hover    { background: #2b6cb0; }
-    .btn-delete { background: #fc8181; color: white; padding: 0.3rem 0.7rem; font-size: 0.8rem; }
-    .btn-delete:hover { background: #e53e3e; }
+    .btn-add      { background: var(--blue); color: #fff; align-self: end; }
+    .btn-add:hover { background: #2c5282; }
+    .btn-del      { background: #fed7d7; color: var(--red); padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+    .btn-del:hover { background: #fc8181; color: #fff; }
 
-    #status { font-size: 0.8rem; color: #e53e3e; min-height: 1.2em; margin-bottom: 0.5rem; }
-
-    ul { list-style: none; }
-    li {
+    .tiles {
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.6rem 0;
-      border-bottom: 1px solid #edf2f7;
-      gap: 0.5rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
     }
-    li:last-child { border-bottom: none; }
-    .note-text { flex: 1; }
-    .note-meta { font-size: 0.75rem; color: #a0aec0; white-space: nowrap; }
-
-    #empty { color: #a0aec0; font-style: italic; text-align: center; padding: 1rem 0; }
-
-    footer {
-      margin-top: 2rem;
-      font-size: 0.75rem;
-      color: #a0aec0;
-      text-align: center;
+    .tile {
+      flex: 1 1 160px;
+      background: var(--light);
+      border-radius: 0.5rem;
+      padding: 0.8rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
     }
+    .tile .cat  { font-size: 0.78rem; color: var(--gray); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+    .tile .tot  { font-size: 1.4rem; font-weight: 700; color: var(--blue); }
+    .tile .meta { font-size: 0.75rem; color: var(--gray); }
+
+    .grand {
+      font-size: 0.9rem; font-weight: 600; color: var(--green);
+      text-align: right; padding-top: 0.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    thead th {
+      text-align: left; font-size: 0.78rem;
+      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--gray); padding: 0.5rem 0.75rem;
+      border-bottom: 2px solid var(--border);
+    }
+    tbody tr:hover { background: var(--light); }
+    td { padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    td.amount { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+    td.date   { color: var(--gray); font-size: 0.85rem; white-space: nowrap; }
+    .badge {
+      display: inline-block; padding: 0.15rem 0.55rem;
+      border-radius: 9999px; font-size: 0.75rem; font-weight: 600;
+      background: #bee3f8; color: #2a4365;
+    }
+    #empty { color: var(--gray); font-style: italic; text-align: center; padding: 1.5rem 0; }
+
+    footer { font-size: 0.75rem; color: var(--gray); text-align: center; }
     footer code { font-family: monospace; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>📋 Notes Board</h1>
+  <h1>💸 Expense Tracker</h1>
   <p>A5 · 3-tier demo · nginx → Flask API → PostgreSQL</p>
 </header>
 
 <div class="card">
-  <div class="input-row">
-    <input id="noteInput" type="text" placeholder="Write a note and press Add…" maxlength="200" />
-    <button class="btn-add" onclick="addNote()">Add</button>
+  <h2>➕ Nuova spesa</h2>
+  <div class="form-grid">
+    <label>Importo (€)
+      <input id="fAmount" type="number" min="0.01" step="0.01" placeholder="0.00" />
+    </label>
+    <label>Categoria
+      <select id="fCategory">
+        <option value="">— scegli —</option>
+        <option>Alimentari</option>
+        <option>Trasporti</option>
+        <option>Salute</option>
+        <option>Intrattenimento</option>
+        <option>Utenze</option>
+        <option>Abbigliamento</option>
+        <option>Istruzione</option>
+        <option>Altro</option>
+      </select>
+    </label>
+    <label>Descrizione
+      <input id="fDesc" type="text" placeholder="es. Spesa settimanale" maxlength="120" />
+    </label>
+    <label>Data
+      <input id="fDate" type="date" />
+    </label>
+    <button class="btn-add" onclick="addExpense()">Aggiungi</button>
   </div>
   <div id="status"></div>
-  <ul id="noteList"></ul>
-  <p id="empty" style="display:none">No notes yet. Add one above!</p>
+</div>
+
+<div class="card">
+  <h2>📊 Riepilogo per categoria</h2>
+  <div class="tiles" id="tiles"><em style="color:var(--gray)">Nessuna spesa registrata.</em></div>
+  <div class="grand" id="grandTotal"></div>
+</div>
+
+<div class="card">
+  <h2>📋 Tutte le spese</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Data</th><th>Categoria</th><th>Descrizione</th>
+          <th style="text-align:right">Importo</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="expenseBody"></tbody>
+    </table>
+    <p id="empty" style="display:none">Nessuna spesa ancora. Aggiungine una sopra!</p>
+  </div>
 </div>
 
 <footer>
-  Requests go to <code>/api/notes</code> → nginx proxies to <code>api:5000</code> →
-  Flask queries <code>db:5432</code>.
-  <br>The DB port is <strong>never</strong> reachable from here.
+  Richieste verso <code>/api/expenses</code> e <code>/api/expenses/summary</code> →
+  nginx proxia verso <code>api:5000</code> → Flask interroga <code>db:5432</code> con GROUP BY.
+  <br>La porta del DB non è mai raggiungibile dal frontend.
 </footer>
 
 <script>
-  const API = '/api/notes';
+  const API = '/api/expenses';
 
-  function setStatus(msg, isError = true) {
+  document.getElementById('fDate').value = new Date().toISOString().split('T')[0];
+
+  function setStatus(msg, ok = false) {
     const el = document.getElementById('status');
     el.textContent = msg;
-    el.style.color = isError ? '#e53e3e' : '#38a169';
+    el.className = ok ? 'ok' : 'err';
   }
 
-  async function fetchNotes() {
+  async function refresh() {
+    await Promise.all([fetchExpenses(), fetchSummary()]);
+  }
+
+  async function fetchExpenses() {
     try {
       const res = await fetch(API);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const notes = await res.json();
-      renderNotes(notes);
-    } catch (e) {
-      setStatus('Could not load notes: ' + e.message);
-    }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      renderTable(await res.json());
+    } catch (e) { setStatus('Errore caricamento: ' + e.message); }
   }
 
-  function renderNotes(notes) {
-    const ul   = document.getElementById('noteList');
+  async function fetchSummary() {
+    try {
+      const res = await fetch(API + '/summary');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      renderSummary(await res.json());
+    } catch (e) { /* non-critical */ }
+  }
+
+  function renderTable(expenses) {
+    const tbody = document.getElementById('expenseBody');
     const empty = document.getElementById('empty');
-    ul.innerHTML = '';
-    if (notes.length === 0) { empty.style.display = ''; return; }
+    tbody.innerHTML = '';
+    if (!expenses.length) { empty.style.display = ''; return; }
     empty.style.display = 'none';
-    notes.forEach(n => {
-      const li = document.createElement('li');
-      const ts = new Date(n.created_at).toLocaleString();
-      li.innerHTML = `
-        <span class="note-text">${escHtml(n.content)}</span>
-        <span class="note-meta">${ts}</span>
-        <button class="btn-delete" onclick="deleteNote(${n.id})">✕</button>`;
-      ul.appendChild(li);
+    expenses.forEach(e => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="color:var(--gray);font-size:.8rem">' + e.id + '</td>' +
+        '<td class="date">' + e.expense_date + '</td>' +
+        '<td><span class="badge">' + esc(e.category) + '</span></td>' +
+        '<td>' + esc(e.description) + '</td>' +
+        '<td class="amount">€ ' + Number(e.amount).toFixed(2) + '</td>' +
+        '<td><button class="btn-del" onclick="delExpense(' + e.id + ')">✕</button></td>';
+      tbody.appendChild(tr);
     });
   }
 
-  async function addNote() {
-    const input   = document.getElementById('noteInput');
-    const content = input.value.trim();
-    if (!content) { setStatus('Please write something first.'); return; }
+  function renderSummary(data) {
+    const tilesEl = document.getElementById('tiles');
+    const grandEl = document.getElementById('grandTotal');
+    const rows    = data.by_category || [];
+    if (!rows.length) {
+      tilesEl.innerHTML = '<em style="color:var(--gray)">Nessuna spesa registrata.</em>';
+      grandEl.textContent = '';
+      return;
+    }
+    tilesEl.innerHTML = rows.map(r =>
+      '<div class="tile">' +
+        '<span class="cat">' + esc(r.category) + '</span>' +
+        '<span class="tot">€ ' + Number(r.total).toFixed(2) + '</span>' +
+        '<span class="meta">' +
+          r.count + ' spese · media € ' + Number(r.avg).toFixed(2) +
+          '<br>min € ' + Number(r.min).toFixed(2) +
+          ' · max € ' + Number(r.max).toFixed(2) +
+        '</span>' +
+      '</div>'
+    ).join('');
+    const g = data.grand_total;
+    grandEl.textContent =
+      'Totale complessivo: € ' + Number(g.total).toFixed(2) +
+      '  (' + g.count + ' spese)';
+  }
+
+  async function addExpense() {
+    const amount   = document.getElementById('fAmount').value;
+    const category = document.getElementById('fCategory').value;
+    const desc     = document.getElementById('fDesc').value.trim();
+    const date     = document.getElementById('fDate').value;
+    if (!amount || Number(amount) <= 0) { setStatus('Inserisci un importo valido (> 0).'); return; }
+    if (!category) { setStatus('Seleziona una categoria.'); return; }
+    if (!desc)     { setStatus('Inserisci una descrizione.'); return; }
     try {
       const res = await fetch(API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ amount: Number(amount), category, description: desc, date }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      input.value = '';
-      setStatus('Note saved!', false);
-      await fetchNotes();
-    } catch (e) {
-      setStatus('Could not save note: ' + e.message);
-    }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      document.getElementById('fAmount').value = '';
+      document.getElementById('fDesc').value   = '';
+      setStatus('Spesa aggiunta!', true);
+      await refresh();
+    } catch (e) { setStatus('Errore: ' + e.message); }
   }
 
-  async function deleteNote(id) {
+  async function delExpense(id) {
     try {
-      const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await fetchNotes();
-    } catch (e) {
-      setStatus('Could not delete note: ' + e.message);
-    }
+      const res = await fetch(API + '/' + id, { method: 'DELETE' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      await refresh();
+    } catch (e) { setStatus('Errore eliminazione: ' + e.message); }
   }
 
-  // Allow Enter key in the input box
   document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('noteInput')
-      .addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
-    fetchNotes();
+    ['fAmount','fCategory','fDesc','fDate'].forEach(function(id) {
+      document.getElementById(id)
+        .addEventListener('keydown', function(e) { if (e.key === 'Enter') addExpense(); });
+    });
+    refresh();
   });
 
-  function escHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-              .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 </script>
 </body>

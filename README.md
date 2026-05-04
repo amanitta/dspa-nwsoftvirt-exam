@@ -8,7 +8,7 @@
 
 ## 1. Obiettivo
 
-Il progettino realizza un'applicazione web a tre livelli (3-tier) interamente containerizzata con Docker Compose. Un sito statico servito da nginx funge da frontend; le operazioni sui dati transitano attraverso una REST API Python/Flask; la persistenza è affidata a un database PostgreSQL. I tre container sono collegati tramite **due reti Docker separate**: `frontend-net` mette in comunicazione solo nginx e l'API, mentre `backend-net` mette in comunicazione solo l'API e il DB — il frontend non può mai raggiungere direttamente il database.
+Il progettino realizza un **expense tracker** (tracker di spese personali) a tre livelli interamente containerizzato con Docker Compose. Un sito statico servito da nginx funge da frontend; le operazioni sui dati transitano attraverso una REST API Python/Flask; la persistenza è affidata a un database PostgreSQL. I tre container sono collegati tramite **due reti Docker separate**: `frontend-net` mette in comunicazione solo nginx e l'API, mentre `backend-net` mette in comunicazione solo l'API e il DB — il frontend non può mai raggiungere direttamente il database. L'API espone anche un endpoint `/expenses/summary` che delega a PostgreSQL un'aggregazione `GROUP BY category`, restituendo per ogni categoria il totale, la media, il minimo e il massimo delle spese.
 
 ---
 
@@ -46,14 +46,14 @@ Browser
 | Container | Immagine base | Ruolo | Reti |
 |-----------|---------------|-------|------|
 | `a5_frontend` | `nginx:1.27-alpine` | Serve `index.html`; fa reverse-proxy di `/api/*` verso l'API | `frontend-net` |
-| `a5_api` | build locale (Python 3.12) | REST API Flask; crea/legge note su PostgreSQL | `frontend-net` + `backend-net` |
+| `a5_api` | build locale (Python 3.12) | REST API Flask: CRUD spese + `/expenses/summary` (GROUP BY in PostgreSQL) | `frontend-net` + `backend-net` |
 | `a5_db` | `postgres:16-alpine` | Persistenza dati; porta 5432 raggiungibile solo via `backend-net` | `backend-net` |
 
-**Flusso di una richiesta:**
-1. Il browser chiama `GET /api/notes` su `localhost:8080`.
-2. nginx (sull'interfaccia `frontend-net`) fa proxy verso `http://api:5000/notes`.
-3. Flask interroga PostgreSQL via `db:5432` sulla rete `backend-net`.
-4. La risposta JSON risale la catena fino al browser.
+**Flusso di una richiesta (esempio: riepilogo per categoria):**
+1. Il browser chiama `GET /api/expenses/summary` su `localhost:8080`.
+2. nginx (sull'interfaccia `frontend-net`) fa proxy verso `http://api:5000/expenses/summary`.
+3. Flask esegue su PostgreSQL via `db:5432` una query `SELECT … GROUP BY category`.
+4. La risposta JSON con i totali per categoria risale la catena fino al browser.
 
 ---
 
@@ -102,9 +102,9 @@ xdg-open http://localhost:8080   # oppure aprire manualmente il browser
 ### 5.1 Interfaccia web
 
 Aprire `http://localhost:8080`:  
-- Digitare un testo nel campo "Write a note…" e premere **Add** (o Invio).  
-- La nota deve apparire nell'elenco sottostante, con timestamp.  
-- Il pulsante **✕** deve eliminare la nota dall'elenco e dal DB.
+- Inserire importo, categoria, descrizione e data, poi premere **Aggiungi** (o Invio).  
+- La spesa deve comparire nella tabella in fondo e aggiornare immediatamente il riquadro di riepilogo per categoria (totale, media, min, max).  
+- Il pulsante **✕** deve eliminare la riga e ricalcolare il riepilogo.
 
 ### 5.2 API da terminale
 
@@ -113,15 +113,25 @@ Aprire `http://localhost:8080`:
 # Atteso: {"db": "reachable", "status": "ok"}
 curl -s http://localhost:8080/api/health | python3 -m json.tool
 
-# Creazione di una nota
-# Atteso: JSON con id, content, created_at  (HTTP 201)
-curl -s -X POST http://localhost:8080/api/notes \
+# Aggiunta di due spese
+# Atteso: JSON con id, amount, category, description, expense_date  (HTTP 201)
+curl -s -X POST http://localhost:8080/api/expenses \
      -H "Content-Type: application/json" \
-     -d '{"content": "Verifica funzionamento A5"}' | python3 -m json.tool
+     -d '{"amount": 45.50, "category": "Alimentari", "description": "Spesa supermercato", "date": "2026-05-04"}' \
+     | python3 -m json.tool
 
-# Lista note
-# Atteso: array JSON con la nota appena creata
-curl -s http://localhost:8080/api/notes | python3 -m json.tool
+curl -s -X POST http://localhost:8080/api/expenses \
+     -H "Content-Type: application/json" \
+     -d '{"amount": 12.00, "category": "Trasporti", "description": "Biglietto treno", "date": "2026-05-04"}' \
+     | python3 -m json.tool
+
+# Lista completa spese (ordinate per data DESC)
+# Atteso: array JSON con le due spese appena create
+curl -s http://localhost:8080/api/expenses | python3 -m json.tool
+
+# Riepilogo per categoria (GROUP BY eseguito in PostgreSQL)
+# Atteso: {"by_category": [{"category": "Alimentari", "count": 1, "total": ..., "avg": ..., ...}, ...], "grand_total": {...}}
+curl -s http://localhost:8080/api/expenses/summary | python3 -m json.tool
 ```
 
 ### 5.3 Isolamento di rete (punto chiave del progetto)
@@ -171,18 +181,21 @@ bash scripts/teardown.sh
 
 **Cosa ho scoperto:**
 
-- La separazione in due reti non richiede nessuna regola `iptables` esplicita: Docker gestisce automaticamente le regole di forwarding tra bridge. Tuttavia, il risultato è concreto: il container `frontend` non ha nemmeno una route verso `backend-net`, quindi qualunque tentativo di contattare il DB fallisce a livello DNS prima ancora che a livello TCP.
+- La separazione in due reti non richiede nessuna regola `iptables` esplicita: Docker gestisce automaticamente le regole di forwarding tra bridge. Il container `frontend` non ha nemmeno una route verso `backend-net`, quindi qualunque tentativo di contattare il DB fallisce a livello DNS prima ancora che a livello TCP.
 
 - Il container `api` funge da unico *gateway* tra i due tier. Questo è esattamente il pattern di sicurezza atteso: se un attaccante compromettesse il frontend (es. path traversal in nginx), non avrebbe accesso diretto al DB perché i due tier vivono su reti logicamente separate.
 
-- Il `healthcheck` in Compose è essenziale: senza `depends_on: condition: service_healthy`, Flask tenterebbe di connettersi a PostgreSQL prima che il cluster sia pronto, e il container uscirebbe con errore. Il `init_db()` con retry è una seconda linea di difesa.
+- L'endpoint `/expenses/summary` delega l'aggregazione (`GROUP BY category`, `SUM`, `AVG`, `MIN`, `MAX`) direttamente a PostgreSQL anziché recuperare tutte le righe e calcolare in Python. Questo è il modo corretto: il database è ottimizzato per questo tipo di operazioni e la quantità di dati trasferiti sulla rete interna si riduce drasticamente al crescere delle spese.
+
+- Il `healthcheck` in Compose è essenziale: senza `depends_on: condition: service_healthy`, Flask tenterebbe di connettersi a PostgreSQL prima che il cluster sia pronto. Il `init_db()` con retry è una seconda linea di difesa. In `python:3.12-slim` non è presente `wget` né `curl`, quindi il probe usa `urllib` della stdlib Python.
 
 **Domande aperte / miglioramenti futuri:**
 
-1. **Autenticazione API:** le route sono attualmente aperte. In produzione si aggiungerebbe un token Bearer o sessioni.
-2. **HTTPS:** nginx potrebbe terminare TLS con un certificato self-signed (o Let's Encrypt in produzione).
-3. **Portabilità cloud:** su AWS/GCP, `frontend-net` e `backend-net` diventerebbero *security group* o *VPC subnets* con regole analoghe. La logica di isolamento resta identica; cambia solo il piano di implementazione.
-4. **Volume e backup:** il volume `a5_db_data` sopravvive al `docker compose down` ma viene rimosso da `docker compose down -v`. In un contesto reale si userebbe un backup periodico (pg_dump) o un managed DB.
+1. **Autenticazione API:** le route sono attualmente aperte. In produzione si aggiungerebbe un token Bearer o sessioni per isolare i dati per utente.
+2. **Filtri temporali:** l'endpoint `/expenses/summary` potrebbe accettare parametri `?from=&to=` per aggregare solo un periodo; la query SQL cambierebbe aggiungendo `WHERE expense_date BETWEEN $1 AND $2`.
+3. **HTTPS:** nginx potrebbe terminare TLS con un certificato self-signed (o Let's Encrypt in produzione).
+4. **Portabilità cloud:** su AWS/GCP, `frontend-net` e `backend-net` diventerebbero *security group* o *VPC subnets* con regole analoghe. La logica di isolamento resta identica; cambia solo il piano di implementazione.
+5. **Volume e backup:** il volume `a5_db_data` sopravvive al `docker compose down` ma viene rimosso da `docker compose down -v`. In un contesto reale si userebbe un backup periodico (`pg_dump`) o un managed DB.
 
 ---
 

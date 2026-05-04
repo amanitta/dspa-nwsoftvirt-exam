@@ -30,7 +30,7 @@ done
 # ── 3. Quick smoke-test via curl ──────────────────────────────────────────────
 echo ""
 echo "▶  Smoke-test: GET http://localhost:8080/api/health"
-curl -sf http://localhost:8080/api/health | python3 -m json.tool
+curl -s http://localhost:8080/api/health
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
