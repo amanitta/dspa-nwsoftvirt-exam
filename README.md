@@ -1,14 +1,14 @@
 # Progettino A5 — Frontend + API + DB (3-tier con Docker)
 
-**Autore:** *(inserire nome e cognome)*
-**Codice variante:** A5
-**Repo:** *(inserire URL del repository pubblico)*
+**Autore:** *Andrea Manitta*<br>
+**Identificativo Progetto:** A5<br>
+**Repo:** https://github.com/amanitta/dspa-nwsoftvirt-exam
 
 ---
 
 ## 1. Obiettivo
 
-Il progettino realizza un **expense tracker** (tracker di spese personali) a tre livelli interamente containerizzato con Docker Compose. Un sito statico servito da nginx funge da frontend; le operazioni sui dati transitano attraverso una REST API Python/Flask; la persistenza è affidata a un database PostgreSQL. I tre container sono collegati tramite **due reti Docker separate**: `frontend-net` mette in comunicazione solo nginx e l'API, mentre `backend-net` mette in comunicazione solo l'API e il DB — il frontend non può mai raggiungere direttamente il database. L'API espone anche un endpoint `/expenses/summary` che delega a PostgreSQL un'aggregazione `GROUP BY category`, restituendo per ogni categoria il totale, la media, il minimo e il massimo delle spese.
+Il progettino realizza un **expense tracker** (tracker di spese personali) a tre livelli interamente containerizzato con Docker Compose. Un sito statico servito da nginx funge da frontend; le operazioni sui dati transitano attraverso una REST API Python/Flask; la persistenza è affidata a un database PostgreSQL. I tre container sono collegati tramite **due reti Docker separate**: `frontend-net` mette in comunicazione solo nginx e l'API, mentre `backend-net` mette in comunicazione solo l'API e il DB. Il frontend non può mai raggiungere direttamente il database. L'API espone anche un endpoint `/expenses/summary` che delega a PostgreSQL un'aggregazione `GROUP BY category`, restituendo per ogni categoria il totale, la media, il minimo e il massimo delle spese.
 
 ---
 
@@ -31,7 +31,7 @@ Browser
 └─────────────────────────────────────────────────-│──────────────────┘
                                                    │
 ┌──────────────────────────────────────────────────│──────────────────┐
-│  backend-net  (bridge: a5_backend_net)            │                  │
+│  backend-net  (bridge: a5_db_net)               │                  │
 │                                                   ▼                  │
 │                              ┌─────────────────────────────────┐    │
 │                              │  db  (postgres:16-alpine)        │    │
@@ -46,8 +46,8 @@ Browser
 | Container | Immagine base | Ruolo | Reti |
 |-----------|---------------|-------|------|
 | `a5_frontend` | `nginx:1.27-alpine` | Serve `index.html`; fa reverse-proxy di `/api/*` verso l'API | `frontend-net` |
-| `a5_api` | build locale (Python 3.12) | REST API Flask: CRUD spese + `/expenses/summary` (GROUP BY in PostgreSQL) | `frontend-net` + `backend-net` |
-| `a5_db` | `postgres:16-alpine` | Persistenza dati; porta 5432 raggiungibile solo via `backend-net` | `backend-net` |
+| `a5_api` | build locale (Python 3.12) | REST API Flask: CRUD spese + `/expenses/summary` (GROUP BY in PostgreSQL) | `frontend-net` + `db-net` |
+| `a5_db` | `postgres:16-alpine` | Persistenza dati; porta 5432 raggiungibile solo via `db-net` | `db-net` |
 
 **Flusso di una richiesta (esempio: riepilogo per categoria):**
 1. Il browser chiama `GET /api/expenses/summary` su `localhost:8080`.
@@ -136,25 +136,38 @@ curl -s http://localhost:8080/api/expenses/summary | python3 -m json.tool
 
 ### 5.3 Isolamento di rete (punto chiave del progetto)
 
+La specifica richiede esplicitamente tre controlli. I comandi usano `nslookup` (presente in tutte le immagini alpine) e `python3 -c socket` (disponibile nell'immagine Python dell'API).
+
 ```bash
-# Il container frontend NON deve poter raggiungere il DB sulla porta 5432.
-# Atteso: "nc: getaddrinfo for host "db" port 5432: Name or service not known"
-#         oppure connection refused/timeout → la rete backend-net non è visibile.
-docker exec a5_frontend sh -c "nc -zv db 5432 2>&1 || true"
+# Verifica 1 — frontend NON vede il DB (DNS fallisce: NXDOMAIN)
+# Atteso: "server can't find db... NXDOMAIN"
+docker exec a5_frontend nslookup db
 
-# Il container api deve invece raggiungere il DB senza problemi.
-# Atteso: "open"
-docker exec a5_api sh -c "nc -zv db 5432 2>&1"
+# Verifica 2 — api vede il DB (DNS risolve + TCP aperto)
+# Atteso: IP del container db  (es. 172.22.0.2)
+docker exec a5_api python3 -c \
+  "import socket; print(socket.getaddrinfo('db',5432)[0][4])"
 
-# Ispezione delle reti: frontend-net ha solo frontend e api
-# Atteso: "a5_frontend" e "a5_api" in Containers; "a5_db" assente
+# Verifica 3 — api vede frontend; db NON vede frontend
+# Atteso api:  IP del container frontend
+docker exec a5_api python3 -c \
+  "import socket; print(socket.getaddrinfo('frontend',80)[0][4])"
+# Atteso db:   "server can't find frontend... NXDOMAIN"
+docker exec a5_db nslookup frontend
+```
+
+```bash
+# Ispezione strutturale delle due reti
+# Atteso frontend-net: a5_frontend + a5_api  (a5_db assente)
 docker network inspect a5_frontend_net \
   --format '{{range $k,$v := .Containers}}{{$v.Name}} {{end}}'
 
-# Ispezione backend-net: solo api e db
-# Atteso: "a5_api" e "a5_db"; "a5_frontend" assente
-docker network inspect a5_backend_net \
+# Atteso db-net: a5_api + a5_db  (a5_frontend assente)
+docker network inspect a5_db_net \
   --format '{{range $k,$v := .Containers}}{{$v.Name}} {{end}}'
+
+# Panoramica reti del progetto
+docker network ls --filter name=a5_
 ```
 
 ### 5.4 Persistenza dei dati
@@ -163,8 +176,8 @@ docker network inspect a5_backend_net \
 # Riavvia solo il container API (simulazione crash/deploy)
 docker compose restart api
 
-# Le note devono essere ancora presenti (sono nel volume db)
-curl -s http://localhost:8080/api/notes | python3 -m json.tool
+# Le spese devono essere ancora presenti (sono nel volume db, non nel container api)
+curl -s http://localhost:8080/api/expenses | python3 -m json.tool
 ```
 
 ### 5.5 Teardown
@@ -181,11 +194,11 @@ bash scripts/teardown.sh
 
 **Cosa ho scoperto:**
 
-- La separazione in due reti non richiede nessuna regola `iptables` esplicita: Docker gestisce automaticamente le regole di forwarding tra bridge. Il container `frontend` non ha nemmeno una route verso `backend-net`, quindi qualunque tentativo di contattare il DB fallisce a livello DNS prima ancora che a livello TCP.
+- La separazione in due reti non richiede nessuna regola `iptables` esplicita: Docker gestisce automaticamente le regole di forwarding tra bridge. Il container `frontend` non ha nemmeno una route verso `db-net`, quindi qualunque tentativo di contattare il DB fallisce a livello DNS prima ancora che a livello TCP.
 
 - Il container `api` funge da unico *gateway* tra i due tier. Questo è esattamente il pattern di sicurezza atteso: se un attaccante compromettesse il frontend (es. path traversal in nginx), non avrebbe accesso diretto al DB perché i due tier vivono su reti logicamente separate.
 
-- L'endpoint `/expenses/summary` delega l'aggregazione (`GROUP BY category`, `SUM`, `AVG`, `MIN`, `MAX`) direttamente a PostgreSQL anziché recuperare tutte le righe e calcolare in Python. Questo è il modo corretto: il database è ottimizzato per questo tipo di operazioni e la quantità di dati trasferiti sulla rete interna si riduce drasticamente al crescere delle spese.
+- L'endpoint `/expenses/summary` delega l'aggregazione (`GROUP BY category`, `SUM`, `AVG`, `MIN`, `MAX`) direttamente a PostgreSQL anziché recuperare tutte le righe e calcolare in Python. Questo è il modo corretto: il database è ottimizzato per questo tipo di operazioni e la quantità di dati trasferiti sulla rete interna (`db-net`) si riduce drasticamente al crescere delle spese.
 
 - Il `healthcheck` in Compose è essenziale: senza `depends_on: condition: service_healthy`, Flask tenterebbe di connettersi a PostgreSQL prima che il cluster sia pronto. Il `init_db()` con retry è una seconda linea di difesa. In `python:3.12-slim` non è presente `wget` né `curl`, quindi il probe usa `urllib` della stdlib Python.
 
@@ -194,7 +207,7 @@ bash scripts/teardown.sh
 1. **Autenticazione API:** le route sono attualmente aperte. In produzione si aggiungerebbe un token Bearer o sessioni per isolare i dati per utente.
 2. **Filtri temporali:** l'endpoint `/expenses/summary` potrebbe accettare parametri `?from=&to=` per aggregare solo un periodo; la query SQL cambierebbe aggiungendo `WHERE expense_date BETWEEN $1 AND $2`.
 3. **HTTPS:** nginx potrebbe terminare TLS con un certificato self-signed (o Let's Encrypt in produzione).
-4. **Portabilità cloud:** su AWS/GCP, `frontend-net` e `backend-net` diventerebbero *security group* o *VPC subnets* con regole analoghe. La logica di isolamento resta identica; cambia solo il piano di implementazione.
+4. **Portabilità cloud:** su AWS/GCP, `frontend-net` e `db-net` diventerebbero *security group* o *VPC subnets* con regole analoghe. La logica di isolamento resta identica; cambia solo il piano di implementazione.
 5. **Volume e backup:** il volume `a5_db_data` sopravvive al `docker compose down` ma viene rimosso da `docker compose down -v`. In un contesto reale si userebbe un backup periodico (`pg_dump`) o un managed DB.
 
 ---

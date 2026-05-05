@@ -10,7 +10,7 @@ Routes (all consumed by the nginx reverse-proxy under /api/):
 
 Network isolation:
   - Reachable from frontend-net  (nginx → api)
-  - Reaches db via backend-net   (api  → db)
+  - Reaches db via db-net         (api  → db)
   The DB port is never exposed to nginx or to the host.
 """
 
