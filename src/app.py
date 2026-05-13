@@ -45,7 +45,7 @@ class JSONEncoder(app.json_provider_class):
 app.json_provider_class = JSONEncoder
 app.json = JSONEncoder(app)
 
-# ── Database connection ────────────────────────────────────────────────────────
+#region DB access
 
 DSN = {
     "host": os.environ["DB_HOST"],
@@ -95,7 +95,7 @@ def init_db(retries: int = 10, delay: float = 2.0) -> None:
     raise RuntimeError("Could not connect to the database after %d attempts." % retries)
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+#region Routes
 
 @app.get("/health")
 def health():
@@ -162,7 +162,7 @@ def list_expenses():
 def create_expense():
     data = request.get_json(silent=True) or {}
 
-    # ── validation ────────────────────────────────────────────────────────────
+    #region validation
     try:
         amount = float(data.get("amount", 0))
         if amount <= 0:
@@ -215,7 +215,7 @@ def delete_expense(expense_id: int):
         conn.close()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+#region Entry point
 
 if __name__ == "__main__":
     init_db()

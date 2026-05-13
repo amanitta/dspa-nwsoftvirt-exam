@@ -1,7 +1,7 @@
-# Progettino A5 — Frontend + API + DB (3-tier con Docker)
+# Progettino A5: Frontend + API + DB (3-tier con Docker)
 
 **Autore:** *Andrea Manitta*<br>
-**Identificativo Progetto:** A5<br>
+**ID Progetto:** A5<br>
 **Repo:** https://github.com/amanitta/dspa-nwsoftvirt-exam
 
 ---
@@ -14,32 +14,7 @@ Il progettino realizza un **expense tracker** (tracker di spese personali) a tre
 
 ## 2. Architettura
 
-```
-Browser
-  │  HTTP :8080
-  ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│  frontend-net  (bridge: a5_frontend_net)                             │
-│                                                                      │
-│  ┌──────────────────────────┐       ┌────────────────────────────┐  │
-│  │  frontend  (nginx:1.27)  │──────►│  api  (Python 3.12/Flask)  │  │
-│  │  porta host: 8080        │       │  porta interna: 5000       │  │
-│  │  serve: nginx/index.html │       │  esposta solo su frontend- │  │
-│  │  proxy /api/ → api:5000  │       │  net; connessa anche a     │  │
-│  └──────────────────────────┘       │  backend-net               │  │
-│                                     └────────────┬───────────────┘  │
-└─────────────────────────────────────────────────-│──────────────────┘
-                                                   │
-┌──────────────────────────────────────────────────│──────────────────┐
-│  backend-net  (bridge: a5_db_net)               │                  │
-│                                                   ▼                  │
-│                              ┌─────────────────────────────────┐    │
-│                              │  db  (postgres:16-alpine)        │    │
-│                              │  porta 5432 NON esposta all'host │    │
-│                              │  volume persistente: a5_db_data  │    │
-│                              └─────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────────┘
-```
+![Architettura 3-tier con Docker](architecture.drawio.svg)
 
 **Componenti:**
 
@@ -74,18 +49,25 @@ Browser
 # 1. Clona il repository
 git clone git@github.com:amanitta/dspa-nwsoftvirt-exam.git
 cd dspa-nwsoftvirt-exam
+```
 
+```bash
 # 2. Rendi eseguibili gli script
 chmod +x scripts/setup.sh scripts/teardown.sh
+```
 
+```bash
 # 3. Avvia lo stack (build + up + health-check)
 #    Atteso: output "Stack is up! Open http://localhost:8080"
 bash scripts/setup.sh
+```
 
+```bash
 # 4. Verifica che tutti e tre i container siano "healthy" / "running"
 #    Atteso: a5_frontend (Up), a5_api (healthy), a5_db (healthy)
 docker compose ps
-
+```
+```bash
 # 5. Apri il browser
 #    Atteso: pagina "Notes Board" con campo di input
 xdg-open http://localhost:8080   # oppure aprire manualmente il browser
@@ -108,23 +90,29 @@ Aprire `http://localhost:8080`:
 # Health-check dell'API (via nginx)
 # Atteso: {"db": "reachable", "status": "ok"}
 curl -s http://localhost:8080/api/health | python3 -m json.tool
+```
 
+```bash
 # Aggiunta di due spese
 # Atteso: JSON con id, amount, category, description, expense_date  (HTTP 201)
 curl -s -X POST http://localhost:8080/api/expenses \
      -H "Content-Type: application/json" \
      -d '{"amount": 45.50, "category": "Alimentari", "description": "Spesa supermercato", "date": "2026-05-04"}' \
-     | python3 -m json.tool
+     | python3 -m json.tool;
 
 curl -s -X POST http://localhost:8080/api/expenses \
      -H "Content-Type: application/json" \
      -d '{"amount": 12.00, "category": "Trasporti", "description": "Biglietto treno", "date": "2026-05-04"}' \
      | python3 -m json.tool
+```
 
+```bash
 # Lista completa spese (ordinate per data DESC)
 # Atteso: array JSON con le due spese appena create
 curl -s http://localhost:8080/api/expenses | python3 -m json.tool
+```
 
+```bash
 # Riepilogo per categoria (GROUP BY eseguito in PostgreSQL)
 # Atteso: {"by_category": [{"category": "Alimentari", "count": 1, "total": ..., "avg": ..., ...}, ...], "grand_total": {...}}
 curl -s http://localhost:8080/api/expenses/summary | python3 -m json.tool
@@ -138,12 +126,16 @@ La specifica richiede esplicitamente tre controlli. I comandi usano `nslookup` (
 # Verifica 1 — frontend NON vede il DB (DNS fallisce: NXDOMAIN)
 # Atteso: "server can't find db... NXDOMAIN"
 docker exec a5_frontend nslookup db
+```
 
+```bash
 # Verifica 2 — api vede il DB (DNS risolve + TCP aperto)
 # Atteso: IP del container db  (es. 172.22.0.2)
 docker exec a5_api python3 -c \
   "import socket; print(socket.getaddrinfo('db',5432)[0][4])"
+```
 
+```bash
 # Verifica 3 — api vede frontend; db NON vede frontend
 # Atteso api:  IP del container frontend
 docker exec a5_api python3 -c \
@@ -157,11 +149,15 @@ docker exec a5_db nslookup frontend
 # Atteso frontend-net: a5_frontend + a5_api  (a5_db assente)
 docker network inspect a5_frontend_net \
   --format '{{range $k,$v := .Containers}}{{$v.Name}} {{end}}'
+```
 
+```bash
 # Atteso db-net: a5_api + a5_db  (a5_frontend assente)
 docker network inspect a5_db_net \
   --format '{{range $k,$v := .Containers}}{{$v.Name}} {{end}}'
+```
 
+```bash
 # Panoramica reti del progetto
 docker network ls --filter name=a5_
 ```
@@ -171,7 +167,9 @@ docker network ls --filter name=a5_
 ```bash
 # Riavvia solo il container API (simulazione crash/deploy)
 docker compose restart api
+```
 
+```bash
 # Le spese devono essere ancora presenti (sono nel volume db, non nel container api)
 curl -s http://localhost:8080/api/expenses | python3 -m json.tool
 ```
@@ -203,6 +201,7 @@ bash scripts/teardown.sh
 1. **Autenticazione API:** le route sono attualmente aperte. In produzione si dovrebbe richiedere un token o sessioni per isolare i dati per utente.
 2. **Filtri temporali:** l'endpoint `/expenses/summary` potrebbe accettare parametri `?from=&to=` per aggregare solo un periodo; la query SQL cambierebbe aggiungendo `WHERE expense_date BETWEEN $1 AND $2`.
 3. **Volume e backup:** il volume `a5_db_data` sopravvive al `docker compose down` ma viene rimosso da `docker compose down -v`. In un contesto reale si potrebbe usare un backup periodico.
+4. **Implementazione con FastAPI/Pydantic:** si potrebbe sostituire Flask e fare leva su serializzazione e check automatici di pydantic.
 
 ---
 

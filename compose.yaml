@@ -1,6 +1,6 @@
 services:
 
-  # ── Tier 1: static frontend ───────────────────────────────────────────────
+  #region static frontend
   frontend:
     image: nginx:1.27-alpine
     container_name: a5_frontend
@@ -16,7 +16,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── Tier 2: Python/Flask REST API ─────────────────────────────────────────
+  #region Flask API
   api:
     build:
       context: .
@@ -45,7 +45,7 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ── Tier 3: PostgreSQL database ───────────────────────────────────────────
+  #region PostgreSQL
   db:
     image: postgres:16-alpine
     container_name: a5_db
@@ -67,7 +67,7 @@ services:
       retries: 5
     restart: unless-stopped
 
-# ── Networks ──────────────────────────────────────────────────────────────────
+#region Networks
 networks:
   frontend-net:
     name: a5_frontend_net
@@ -76,7 +76,7 @@ networks:
     name: a5_db_net
     driver: bridge
 
-# ── Volumes ───────────────────────────────────────────────────────────────────
+#region Volumes
 volumes:
   db-data:
     name: a5_db_data
