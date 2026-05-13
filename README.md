@@ -66,16 +66,14 @@ Browser
 | Docker Compose plugin | ≥ 2.27 | `docker compose version` |
 | curl | qualsiasi | solo per i test da terminale |
 
-> **Nota WSL2 (Windows):** il setup funziona identicamente su WSL2 Ubuntu 24.04; le porte sono raggiunte via `localhost` dal browser Windows.
-
 ---
 
 ## 4. Come riprodurre passo-passo
 
 ```bash
 # 1. Clona il repository
-git clone https://github.com/<utente>/<repo>.git
-cd <repo>
+git clone git@github.com:amanitta/dspa-nwsoftvirt-exam.git
+cd dspa-nwsoftvirt-exam
 
 # 2. Rendi eseguibili gli script
 chmod +x scripts/setup.sh scripts/teardown.sh
@@ -92,8 +90,6 @@ docker compose ps
 #    Atteso: pagina "Notes Board" con campo di input
 xdg-open http://localhost:8080   # oppure aprire manualmente il browser
 ```
-
-> Se `setup.sh` si blocca in attesa dell'API, verificare i log con `docker compose logs api`.
 
 ---
 
@@ -134,7 +130,7 @@ curl -s http://localhost:8080/api/expenses | python3 -m json.tool
 curl -s http://localhost:8080/api/expenses/summary | python3 -m json.tool
 ```
 
-### 5.3 Isolamento di rete (punto chiave del progetto)
+### 5.3 Isolamento di rete
 
 La specifica richiede esplicitamente tre controlli. I comandi usano `nslookup` (presente in tutte le immagini alpine) e `python3 -c socket` (disponibile nell'immagine Python dell'API).
 
@@ -196,19 +192,17 @@ bash scripts/teardown.sh
 
 - La separazione in due reti non richiede nessuna regola `iptables` esplicita: Docker gestisce automaticamente le regole di forwarding tra bridge. Il container `frontend` non ha nemmeno una route verso `db-net`, quindi qualunque tentativo di contattare il DB fallisce a livello DNS prima ancora che a livello TCP.
 
-- Il container `api` funge da unico *gateway* tra i due tier. Questo è esattamente il pattern di sicurezza atteso: se un attaccante compromettesse il frontend (es. path traversal in nginx), non avrebbe accesso diretto al DB perché i due tier vivono su reti logicamente separate.
+- Il container `api` funge da unico *gateway* tra i due tier. Questo è esattamente il pattern di sicurezza atteso: se un attaccante compromettesse il frontend non avrebbe accesso diretto al DB perché i due tier vivono su reti logicamente separate.
 
-- L'endpoint `/expenses/summary` delega l'aggregazione (`GROUP BY category`, `SUM`, `AVG`, `MIN`, `MAX`) direttamente a PostgreSQL anziché recuperare tutte le righe e calcolare in Python. Questo è il modo corretto: il database è ottimizzato per questo tipo di operazioni e la quantità di dati trasferiti sulla rete interna (`db-net`) si riduce drasticamente al crescere delle spese.
+- L'endpoint `/expenses/summary` delega l'aggregazione (`GROUP BY category`, `SUM`, `AVG`, `MIN`, `MAX`) direttamente a PostgreSQL anziché recuperare tutte le righe e calcolare in Python. Il database è ottimizzato per questo tipo di operazioni e la quantità di dati trasferiti sulla rete interna (`db-net`) si riduce drasticamente al crescere delle spese.
 
-- Il `healthcheck` in Compose è essenziale: senza `depends_on: condition: service_healthy`, Flask tenterebbe di connettersi a PostgreSQL prima che il cluster sia pronto. Il `init_db()` con retry è una seconda linea di difesa. In `python:3.12-slim` non è presente `wget` né `curl`, quindi il probe usa `urllib` della stdlib Python.
+- `healthcheck` in Compose è essenziale: senza `depends_on: condition: service_healthy`, Flask tenterebbe di connettersi a PostgreSQL prima che il cluster sia pronto. Il `init_db()` con retry è una seconda linea di difesa. In `python:3.12-slim` non è presente `wget` né `curl`, quindi il probe usa `urllib` della stdlib Python.
 
 **Domande aperte / miglioramenti futuri:**
 
-1. **Autenticazione API:** le route sono attualmente aperte. In produzione si aggiungerebbe un token Bearer o sessioni per isolare i dati per utente.
+1. **Autenticazione API:** le route sono attualmente aperte. In produzione si dovrebbe richiedere un token o sessioni per isolare i dati per utente.
 2. **Filtri temporali:** l'endpoint `/expenses/summary` potrebbe accettare parametri `?from=&to=` per aggregare solo un periodo; la query SQL cambierebbe aggiungendo `WHERE expense_date BETWEEN $1 AND $2`.
-3. **HTTPS:** nginx potrebbe terminare TLS con un certificato self-signed (o Let's Encrypt in produzione).
-4. **Portabilità cloud:** su AWS/GCP, `frontend-net` e `db-net` diventerebbero *security group* o *VPC subnets* con regole analoghe. La logica di isolamento resta identica; cambia solo il piano di implementazione.
-5. **Volume e backup:** il volume `a5_db_data` sopravvive al `docker compose down` ma viene rimosso da `docker compose down -v`. In un contesto reale si userebbe un backup periodico (`pg_dump`) o un managed DB.
+3. **Volume e backup:** il volume `a5_db_data` sopravvive al `docker compose down` ma viene rimosso da `docker compose down -v`. In un contesto reale si potrebbe usare un backup periodico.
 
 ---
 
